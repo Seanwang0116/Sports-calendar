@@ -99,7 +99,15 @@ main{padding:22px 28px 40px;min-width:0}
 /* list view */
 .list{display:flex;flex-direction:column;gap:14px}
 .day{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.day h3{display:flex;align-items:baseline;gap:8px;margin:0;padding:10px 14px 8px;border-bottom:1px solid var(--line);font-size:14px;font-weight:500;color:var(--muted)}
+.day h3{margin:0;font-size:14px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--line)}
+.dayhead{display:flex;align-items:baseline;gap:8px;width:100%;padding:10px 14px 8px;border:0;background:none;color:inherit;font:inherit;text-align:left}
+.dayhead:hover{background:var(--soft)}
+.day.today .dayhead:hover{background:transparent}
+.chev{display:inline-block;margin-left:6px;transition:transform .15s ease;font-size:12px}
+.day.collapsed .chev{transform:rotate(-90deg)}
+.day.collapsed h3{border-bottom:0}
+.day.collapsed .row{display:none}
+.daycount{margin-left:auto;white-space:nowrap}
 .day h3 .dnum{font-size:28px;color:var(--ink);font-weight:700;line-height:1}
 .day.today h3{background:var(--accent);color:var(--accent-ink)}
 .day.today h3 .dnum{color:var(--accent-ink)}
@@ -118,6 +126,16 @@ main{padding:22px 28px 40px;min-width:0}
 .row .s{font-size:13px;text-align:right;white-space:nowrap}
 .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--late);color:var(--late-ink);margin-left:6px;vertical-align:2px}
 
+.day{scroll-margin-top:12px}
+.ver{margin-top:28px;text-align:right;font-size:12px;color:var(--muted)}
+#subBody{overflow:auto}
+#subBody h4{margin:8px 0 0;font-size:15px}
+.subrow{display:flex;gap:6px;align-items:stretch}
+.suburl{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--soft);color:var(--ink);font-size:12.5px}
+.sublinks{display:flex;gap:8px;flex-wrap:wrap}
+textarea.cfg{width:100%;min-height:150px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--soft);color:var(--ink);
+  font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical}
+.ok{color:#2E8B57}
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:40px 24px;text-align:center;color:var(--muted)}
 
 /* dialogs */
@@ -131,7 +149,7 @@ dialog::backdrop{background:rgba(12,18,26,.45)}
 .dlg .when .num{font-size:30px;font-weight:700;margin-right:6px}
 .muted{color:var(--muted);font-size:13px;margin:0}
 .dlg-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;flex-wrap:wrap}
-a.btn{text-decoration:none;display:inline-block}
+a.btn{text-decoration:none;display:inline-block;color:var(--ink)}
 .teamlist{overflow:auto;border:1px solid var(--line);border-radius:8px;min-height:120px;flex:1}
 .teamlist label{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px}
 .teamlist label:last-child{border-bottom:0}
@@ -179,14 +197,17 @@ a.btn{text-decoration:none;display:inline-block}
           <button data-view="grid">月曆</button>
           <button data-view="list">清單</button>
         </div>
+        <button class="btn" id="subBtn">日曆訂閱</button>
         <button class="btn primary" id="exportBtn">匯出本月 .ics</button>
       </div>
     </div>
     <div class="status" id="status" aria-live="polite"></div>
     <div id="calendar"></div>
+    <footer class="ver" id="ver"></footer>
   </main>
 </div>
 
+<dialog id="subDlg"><div class="dlg" id="subBody"></div></dialog>
 <dialog id="evDlg"><div class="dlg" id="evBody"></div></dialog>
 <dialog id="dayDlg"><div class="dlg" id="dayBody"></div></dialog>
 <dialog id="teamDlg">
@@ -218,6 +239,8 @@ const LEAGUES = [
 const LG = Object.fromEntries(LEAGUES.map(l=>[l.key,l]));
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 const STORE = 'my-sports-calendar-v1';
+const APP_VERSION = '1.0';
+const APP_DATE = '2026-10-13';
 const WD = ['日','一','二','三','四','五','六'];
 
 const $ = s => document.querySelector(s);
@@ -252,6 +275,9 @@ let blocked = false;
 let inFrame = false; try{ inFrame = window.self !== window.top; }catch(e){ inFrame = true; }
 let loadToken = 0;
 const cache = new Map();
+let scrollToToday = true;          // jump to today once, on open or when tapping 本月
+const collapsedDays = new Set();   // days the user collapsed by hand
+const expandedDays = new Set();    // past days the user expanded by hand
 const teamCache = new Map();
 const narrowMQ = matchMedia('(max-width:720px)');
 
@@ -315,8 +341,7 @@ function normalize(lg, ev){
   const h = teamInfo(cs.find(x=>x.homeAway==='home') || cs[0]);
   const a = teamInfo(cs.find(x=>x.homeAway==='away') || cs[1]);
   const st = c.status?.type || ev.status?.type || {};
-  const soccer = lg.kind === 'soccer';
-  const score = soccer ? `${h.score}–${a.score}` : `${a.score}–${h.score}`;
+  const score = `${a.score}–${h.score}`;   // same order as the matchup: away–home
   let note = '';
   if(/POSTPONED/.test(st.name||'')) note = '延期';
   else if(/CANCEL/.test(st.name||'')) note = '取消';
@@ -324,9 +349,9 @@ function normalize(lg, ev){
   else if(st.state==='in') note = (h.score!=='' ? score + ' ' : '') + '進行中';
   return [{
     id:`${lg.key}-${ev.id}`, lg:lg.key, date:new Date(ev.date || c.date),
-    grid: soccer ? `${h.abbr}–${a.abbr}` : `${a.abbr} @ ${h.abbr}`,
-    list: soccer ? `${h.short} vs ${a.short}` : `${a.short} @ ${h.short}`,
-    title: soccer ? `${h.name} vs ${a.name}` : `${a.name} @ ${h.name}`,
+    grid: `${a.abbr} @ ${h.abbr}`,
+    list: `${a.short} @ ${h.short}`,
+    title: `${a.name} @ ${h.name}`,
     sub:'', venue: c.venue?.fullName || '', note,
     teamIds: [h.id, a.id].filter(Boolean), main:true,
     teams: [h, a].filter(t => t.id).map(t => ({id:t.id, name:t.name, abbr:t.abbr}))
@@ -575,20 +600,35 @@ function renderList(cal, byDay, count){
   }
   const wrap = document.createElement('div'); wrap.className = 'list';
   const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const dim = new Date(cursor.getFullYear(), cursor.getMonth()+1, 0).getDate();
-  let todayEl = null;
+  let firstUpcoming = null;   // today, or the next day with games
   for(let i=1; i<=dim; i++){
     const d = new Date(cursor.getFullYear(), cursor.getMonth(), i);
     const list = byDay.get(dayKey(d));
     if(!list) continue;
     const sec = document.createElement('section');
-    sec.className = 'day' + (sameDay(d,today) ? ' today' : '');
-    sec.innerHTML = `<h3><span class="num dnum">${d.getDate()}</span><span>${d.getMonth()+1} 月・週${WD[d.getDay()]}</span><span style="margin-left:auto">${list.length} 場</span></h3>`;
+    const k = dayKey(d);
+    const past = d < todayStart;   // before today, not including today
+    const closed = past ? !expandedDays.has(k) : collapsedDays.has(k);
+    sec.className = 'day' + (sameDay(d,today) ? ' today' : '') + (closed ? ' collapsed' : '');
+    sec.innerHTML = `<h3><button class="dayhead" aria-expanded="${!closed}"><span class="num dnum">${d.getDate()}</span><span>${d.getMonth()+1} 月・週${WD[d.getDay()]}</span><span class="daycount">${list.length} 場<span class="chev" aria-hidden="true">▾</span></span></button></h3>`;
+    sec.querySelector('.dayhead').onclick = ev => {
+      const nowClosed = sec.classList.toggle('collapsed');
+      if(past){ nowClosed ? expandedDays.delete(k) : expandedDays.add(k); }
+      else { nowClosed ? collapsedDays.add(k) : collapsedDays.delete(k); }
+      ev.currentTarget.setAttribute('aria-expanded', String(!nowClosed));
+    };
     list.forEach(e => sec.append(evButton(e,'row')));
     wrap.append(sec);
-    if(sameDay(d,today)) todayEl = sec;
+    if(!past && !firstUpcoming) firstUpcoming = sec;
   }
   cal.append(wrap);
+  const thisMonth = cursor.getFullYear()===today.getFullYear() && cursor.getMonth()===today.getMonth();
+  if(scrollToToday && thisMonth){
+    scrollToToday = false;
+    if(firstUpcoming) firstUpcoming.scrollIntoView({block:'start'});
+  }
 }
 
 /* ---------- dialogs ---------- */
@@ -771,12 +811,76 @@ async function diagnose(){
   body.append(pre, act);
 }
 
+/* ---------- calendar subscription ---------- */
+function buildConfig(){
+  const leagues = {};
+  for(const l of LEAGUES){
+    if(!state.enabled[l.key]) continue;
+    if(l.kind === 'race'){ leagues[l.key] = {main_sessions_only: !!state.f1Main}; continue; }
+    const ids = state.teams[l.key] || [];
+    leagues[l.key] = ids.length ? {teams: ids, team_names: (state.teamNames[l.key] || []).join('、')} : {teams: []};
+  }
+  return {calendar_name:'我的賽程', days_back:7, days_ahead:90, leagues};
+}
+
+async function copyText(text, btn, label){
+  try{ await navigator.clipboard.writeText(text); btn.textContent = '已複製'; }
+  catch(e){ btn.textContent = '請手動選取複製'; }
+  setTimeout(() => { btn.textContent = label; }, 2000);
+}
+
+async function openSub(){
+  const body = $('#subBody');
+  const hosted = /^https?:$/.test(location.protocol);
+  const cfgText = JSON.stringify(buildConfig(), null, 2);
+  body.innerHTML = `
+    <h3>日曆訂閱</h3>
+    <div id="subInfo"><p class="muted">${hosted ? '檢查訂閱日曆中…' : '用 GitHub Pages 的網址開啟這個頁面後，這裡會顯示你的訂閱網址。'}</p></div>
+    <h4>讓訂閱日曆跟目前的勾選一致</h4>
+    <p class="muted">訂閱日曆的內容由 GitHub 上的 calendar-config.json 決定。複製下面的設定，到 GitHub 打開那個檔案，用它取代全部內容後儲存，幾分鐘後訂閱日曆就會更新。</p>
+    <textarea class="cfg" readonly></textarea>
+    <div class="dlg-actions"><button class="btn" data-close>關閉</button><button class="btn primary" id="copyCfg">複製設定</button></div>`;
+  body.querySelector('textarea').value = cfgText;
+  body.querySelector('[data-close]').onclick = () => $('#subDlg').close();
+  const cb = body.querySelector('#copyCfg'); cb.onclick = () => copyText(cfgText, cb, '複製設定');
+  $('#subDlg').showModal();
+  if(!hosted) return;
+
+  const base = new URL('calendar/', location.href);
+  const info = body.querySelector('#subInfo');
+  try{
+    const r = await fetch(new URL('status.json', base), {cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    const st = await r.json();
+    const icsUrl = new URL('all.ics', base).href;
+    const webcal = icsUrl.replace(/^https?:/, 'webcal:');
+    const t = new Date(st.updated);
+    const names = Object.values(st.leagues || {}).filter(x => x.ok).map(x => `${x.name} ${x.events}`).join('、');
+    info.innerHTML = `
+      <p class="muted"><span class="ok">● 訂閱日曆運作中</span>　上次更新：${t.getMonth()+1}/${t.getDate()} ${hm(t)}，共 ${st.total} 場（${esc(names)}）</p>
+      <div class="subrow"><input class="suburl" readonly><button class="btn" id="copyUrl">複製網址</button></div>
+      <div class="sublinks">
+        <a class="btn" target="_blank" rel="noopener" id="gLink">用 Google 日曆訂閱</a>
+        <a class="btn" id="aLink">用 iPhone／Mac 日曆訂閱</a>
+      </div>`;
+    info.querySelector('.suburl').value = icsUrl;
+    info.querySelector('#gLink').href = 'https://calendar.google.com/calendar/render?cid=' + encodeURIComponent(webcal);
+    info.querySelector('#aLink').href = webcal;
+    const ub = info.querySelector('#copyUrl'); ub.onclick = () => copyText(icsUrl, ub, '複製網址');
+  }catch(e){
+    info.innerHTML = '<p class="muted">還沒有偵測到訂閱日曆。請先在 GitHub 完成自動更新的設定（上傳 build_ics.py、calendar-config.json 和 workflow 檔，並把 Pages 來源改成 GitHub Actions）。</p>';
+  }
+}
+
 /* ---------- wiring ---------- */
 $('#prevBtn').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()-1, 1); render(); load(); };
 $('#nextBtn').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1); render(); load(); };
-$('#todayBtn').onclick = () => { const t = new Date(); cursor = new Date(t.getFullYear(), t.getMonth(), 1); render(); load(); };
+$('#todayBtn').onclick = () => { const t = new Date(); cursor = new Date(t.getFullYear(), t.getMonth(), 1); scrollToToday = true; render(); load(); };
 document.querySelectorAll('.seg button').forEach(b => b.onclick = () => { state.view = b.dataset.view; saveState(); render(); });
 $('#exportBtn').onclick = exportIcs;
+$('#subBtn').onclick = openSub;
+bindBackdrop($('#subDlg'));
+$('#ver').textContent = `版本 ${APP_VERSION}（${APP_DATE}）`;
 narrowMQ.addEventListener('change', render);
 
 renderLeagues();

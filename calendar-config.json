@@ -1,0 +1,12 @@
+{
+  "calendar_name": "我的賽程",
+  "days_back": 7,
+  "days_ahead": 90,
+  "leagues": {
+    "nba": { "teams": [] },
+    "mlb": { "teams": [] },
+    "f1": { "main_sessions_only": true },
+    "epl": { "teams": [] },
+    "laliga": { "teams": [] }
+  }
+}
