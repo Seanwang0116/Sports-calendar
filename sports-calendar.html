@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>我的賽程日曆</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#EEF1F4; --surface:#FFFFFF; --ink:#18212C; --muted:#5D6876;
+  --line:#D5DBE2; --accent:#1F4E79; --accent-ink:#FFFFFF; --soft:#F5F7F9;
+  --late:#2B3442; --late-ink:#DCE4EE;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10151C; --surface:#18202A; --ink:#E6EBF1; --muted:#93A0AF;
+    --line:#2A3542; --accent:#7FB2E5; --accent-ink:#0E1620; --soft:#1D2632;
+    --late:#C9D6E4; --late-ink:#111821;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10151C; --surface:#18202A; --ink:#E6EBF1; --muted:#93A0AF;
+  --line:#2A3542; --accent:#7FB2E5; --accent-ink:#0E1620; --soft:#1D2632;
+  --late:#C9D6E4; --late-ink:#111821;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.num{font-family:"Barlow Condensed","Arial Narrow","Roboto Condensed",sans-serif;font-variant-numeric:tabular-nums}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:272px minmax(0,1fr);min-height:100vh}
+aside{background:var(--surface);border-right:1px solid var(--line);padding:28px 20px 24px}
+aside h1{font-size:20px;margin:0 0 4px;font-weight:700;letter-spacing:.02em}
+.hint{margin:0 0 22px;color:var(--muted);font-size:13px}
+.leagues{display:flex;flex-direction:column;gap:6px}
+.lg{border-left:4px solid var(--c);background:var(--soft);border-radius:0 8px 8px 0;padding:8px 10px 8px 12px}
+.lg.off{opacity:.55}
+.lg-main{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:500}
+.lg-main input{width:18px;height:18px;margin:0;accent-color:var(--c)}
+.lg-sub{display:block;margin:4px 0 0 28px;padding:0;border:0;background:none;color:var(--muted);font-size:12.5px;text-align:left}
+button.lg-sub{text-decoration:underline;text-underline-offset:3px}
+button.lg-sub:hover{color:var(--ink)}
+label.lg-sub{display:flex;align-items:center;gap:6px;cursor:pointer}
+label.lg-sub input{margin:0;accent-color:var(--c)}
+.source{margin-top:22px;font-size:12px;color:var(--muted)}
+
+main{padding:22px 28px 40px;min-width:0}
+.bar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.month{display:flex;align-items:flex-end;gap:10px}
+.mtitle{display:flex;align-items:baseline;gap:6px;margin:0;font-weight:700;line-height:.85}
+.mtitle .mnum{font-size:76px;letter-spacing:-.02em}
+.mtitle .mlabel{font-size:22px}
+.mtitle .myear{font-size:22px;color:var(--muted);margin-left:4px;font-weight:600}
+.nav{display:flex;gap:4px;margin-bottom:6px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 12px;font-size:14px;line-height:1.3}
+.btn:hover{border-color:var(--muted)}
+.btn.icon{width:34px;padding:6px 0;font-size:18px;line-height:1}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
+.actions{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:6px 14px;font-size:14px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
+.status{min-height:22px;font-size:13px;color:var(--muted);margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.status .err{color:#C2352B}
+.status button{border:0;background:none;padding:0;text-decoration:underline;color:var(--accent);font-size:13px}
+
+/* month grid */
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line);border-left:1px solid var(--line);background:var(--surface);border-radius:10px;overflow:hidden}
+.wd{padding:6px 8px;font-size:12px;color:var(--muted);border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--soft)}
+.cell{min-height:118px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px 5px 6px;min-width:0}
+.cell.out{background:var(--soft)}
+.cell.out .d{opacity:.45}
+.d{font-size:20px;font-weight:600;line-height:1;padding:3px 3px 5px}
+.cell.today .d{color:var(--accent-ink);background:var(--accent);border-radius:6px;display:inline-block;padding:3px 7px 4px}
+.cell ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.ev{display:flex;gap:5px;align-items:baseline;width:100%;border:0;text-align:left;padding:2px 6px;border-radius:4px;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;
+  background:color-mix(in srgb, var(--c) 18%, var(--surface));color:var(--ink)}
+.ev:hover{background:color-mix(in srgb, var(--c) 32%, var(--surface))}
+.ev .t{font-size:13.5px;font-weight:600;flex:none}
+.ev .m{overflow:hidden;text-overflow:ellipsis}
+.ev.late .t::before{content:"☾";font-family:system-ui,sans-serif;font-size:10px;margin-right:2px;opacity:.7}
+.more{border:0;background:none;padding:2px 6px;font-size:12px;color:var(--accent);text-align:left}
+
+/* list view */
+.list{display:flex;flex-direction:column;gap:14px}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.day h3{display:flex;align-items:baseline;gap:8px;margin:0;padding:10px 14px 8px;border-bottom:1px solid var(--line);font-size:14px;font-weight:500;color:var(--muted)}
+.day h3 .dnum{font-size:28px;color:var(--ink);font-weight:700;line-height:1}
+.day.today h3{background:var(--accent);color:var(--accent-ink)}
+.day.today h3 .dnum{color:var(--accent-ink)}
+.row{display:grid;grid-template-columns:58px 64px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;border:0;border-left:4px solid var(--c);background:none;text-align:left;padding:9px 14px 9px 10px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--soft)}
+.row .t{font-size:22px;font-weight:600;line-height:1}
+.row .tag{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .m{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .m small{display:block;font-weight:400;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:13px;text-align:right;white-space:nowrap}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--late);color:var(--late-ink);margin-left:6px;vertical-align:2px}
+
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:40px 24px;text-align:center;color:var(--muted)}
+
+/* dialogs */
+dialog{border:0;padding:0;border-radius:14px;background:var(--surface);color:var(--ink);width:min(440px,calc(100vw - 32px));max-height:min(80vh,640px);box-shadow:0 20px 60px rgba(10,20,30,.28)}
+dialog::backdrop{background:rgba(12,18,26,.45)}
+.dlg{padding:20px 20px 16px;display:flex;flex-direction:column;gap:10px;max-height:min(80vh,640px)}
+.dlg h3{margin:0;font-size:18px;line-height:1.35}
+.dlg .lgname{font-size:13px;font-weight:700;color:var(--c);display:flex;align-items:center;gap:6px}
+.dlg .lgname::before{content:"";width:10px;height:10px;border-radius:2px;background:var(--c)}
+.dlg .when{font-size:15px}
+.dlg .when .num{font-size:30px;font-weight:700;margin-right:6px}
+.muted{color:var(--muted);font-size:13px;margin:0}
+.dlg-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;flex-wrap:wrap}
+a.btn{text-decoration:none;display:inline-block}
+.teamlist{overflow:auto;border:1px solid var(--line);border-radius:8px;min-height:120px;flex:1}
+.teamlist label{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px}
+.teamlist label:last-child{border-bottom:0}
+.teamlist input{margin:0;width:16px;height:16px;accent-color:var(--accent)}
+.teamlist .ab{margin-left:auto;color:var(--muted);font-size:13px}
+.search{width:100%;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--soft)}
+.daylist{overflow:auto;margin:0 -20px;border-top:1px solid var(--line)}
+
+@media (max-width:820px){
+  .app{grid-template-columns:1fr}
+  aside{border-right:0;border-bottom:1px solid var(--line);padding:20px 16px 16px}
+  .leagues{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .source{display:none}
+  main{padding:18px 14px 32px}
+  .mtitle .mnum{font-size:60px}
+}
+@media (max-width:720px){
+  .seg{display:none}
+  .row{grid-template-columns:50px minmax(0,1fr) auto;gap:8px}
+  .row .tag{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>我的賽程日曆</h1>
+    <p class="hint">勾選想看的聯賽，比賽時間會自動換成你電腦的當地時間。☾ 表示凌晨開打。</p>
+    <div class="leagues" id="leagueList"></div>
+    <p class="source">賽程資料來自 ESPN 公開 API，每次切換月份時即時抓取。</p>
+  </aside>
+  <main>
+    <div class="bar">
+      <div class="month">
+        <h2 class="mtitle" id="monthTitle"></h2>
+        <div class="nav">
+          <button class="btn icon" id="prevBtn" aria-label="上個月">‹</button>
+          <button class="btn icon" id="nextBtn" aria-label="下個月">›</button>
+          <button class="btn" id="todayBtn">本月</button>
+        </div>
+      </div>
+      <div class="actions">
+        <div class="seg" role="group" aria-label="顯示方式">
+          <button data-view="grid">月曆</button>
+          <button data-view="list">清單</button>
+        </div>
+        <button class="btn primary" id="exportBtn">匯出本月 .ics</button>
+      </div>
+    </div>
+    <div class="status" id="status" aria-live="polite"></div>
+    <div id="calendar"></div>
+  </main>
+</div>
+
+<dialog id="evDlg"><div class="dlg" id="evBody"></div></dialog>
+<dialog id="dayDlg"><div class="dlg" id="dayBody"></div></dialog>
+<dialog id="teamDlg">
+  <div class="dlg">
+    <h3 id="teamTitle"></h3>
+    <p class="muted">只顯示勾選球隊的比賽；全部不勾就顯示整個聯賽。</p>
+    <input type="search" class="search" id="teamSearch" placeholder="搜尋球隊名稱或縮寫">
+    <div class="teamlist" id="teamList"></div>
+    <div class="dlg-actions">
+      <button class="btn" id="teamClear">全部清除</button>
+      <button class="btn primary" id="teamDone">完成</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+const LEAGUES = [
+  {key:'nba',    name:'NBA',     sport:'basketball', league:'nba',            color:'#E0612B', dur:150, kind:'us'},
+  {key:'mlb',    name:'MLB',     sport:'baseball',   league:'mlb',            color:'#2F62B3', dur:180, kind:'us'},
+  {key:'f1',     name:'F1',      sport:'racing',     league:'f1',             color:'#D7263D', dur:120, kind:'race'},
+  {key:'epl',    name:'英超',     sport:'soccer',     league:'eng.1',          color:'#7446AE', dur:120, kind:'soccer'},
+  {key:'laliga', name:'西甲',     sport:'soccer',     league:'esp.1',          color:'#C98A06', dur:120, kind:'soccer'},
+  {key:'ucl',    name:'歐冠',     sport:'soccer',     league:'uefa.champions', color:'#1F7A8C', dur:120, kind:'soccer'},
+  {key:'seriea', name:'義甲',     sport:'soccer',     league:'ita.1',          color:'#2E8B57', dur:120, kind:'soccer'},
+  {key:'bundes', name:'德甲',     sport:'soccer',     league:'ger.1',          color:'#B5446E', dur:120, kind:'soccer'},
+  {key:'nfl',    name:'NFL',     sport:'football',   league:'nfl',            color:'#6B7A35', dur:210, kind:'us'},
+  {key:'nhl',    name:'NHL',     sport:'hockey',     league:'nhl',            color:'#56677F', dur:150, kind:'us'},
+];
+const LG = Object.fromEntries(LEAGUES.map(l=>[l.key,l]));
+const API = 'https://site.api.espn.com/apis/site/v2/sports';
+const STORE = 'my-sports-calendar-v1';
+const WD = ['日','一','二','三','四','五','六'];
+
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2,'0');
+const ymd = d => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const sameDay = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const isLate = d => d.getHours() < 7;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const utcStamp = d => d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+
+/* ---------- state ---------- */
+function defaultState(){
+  return {
+    enabled:{nba:true, mlb:true, f1:true, epl:true, laliga:true},
+    teams:{}, teamNames:{}, f1Main:true, view:'grid'
+  };
+}
+function loadState(){
+  try{ const raw = localStorage.getItem(STORE); if(raw) return Object.assign(defaultState(), JSON.parse(raw)); }catch(e){}
+  return defaultState();
+}
+function saveState(){ try{ localStorage.setItem(STORE, JSON.stringify(state)); }catch(e){} }
+
+let state = loadState();
+let cursor = new Date(); cursor = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+let events = [];
+let failed = [];
+let blocked = false;
+let inFrame = false; try{ inFrame = window.self !== window.top; }catch(e){ inFrame = true; }
+let loadToken = 0;
+const cache = new Map();
+const teamCache = new Map();
+const narrowMQ = matchMedia('(max-width:720px)');
+
+/* ---------- data ---------- */
+function gridRange(m){
+  const first = new Date(m.getFullYear(), m.getMonth(), 1);
+  const offset = (first.getDay()+6)%7;
+  const start = addDays(first, -offset);
+  const dim = new Date(m.getFullYear(), m.getMonth()+1, 0).getDate();
+  const cells = Math.ceil((offset+dim)/7)*7;
+  return {start, end:addDays(start, cells-1), cells};
+}
+
+function teamInfo(c){
+  const t = c?.team || {};
+  let score = c?.score;
+  if(score && typeof score === 'object') score = score.displayValue ?? score.value;
+  return {
+    id: t.id, name: t.displayName || t.name || '待定',
+    short: t.shortDisplayName || t.displayName || '待定',
+    abbr: t.abbreviation || t.shortDisplayName || '?',
+    score: score ?? ''
+  };
+}
+
+function sessionLabel(raw){
+  const s = (raw||'').toLowerCase();
+  if(/fp ?1|practice 1/.test(s)) return {label:'一練', main:false};
+  if(/fp ?2|practice 2/.test(s)) return {label:'二練', main:false};
+  if(/fp ?3|practice 3/.test(s)) return {label:'三練', main:false};
+  if(/shootout|sprint qual|\bss\b|\bsq\b/.test(s)) return {label:'衝刺排位', main:true};
+  if(/sprint|\bsr\b/.test(s)) return {label:'衝刺賽', main:true};
+  if(/qual/.test(s)) return {label:'排位賽', main:true};
+  if(/race/.test(s)) return {label:'正賽', main:true};
+  return {label: raw.trim() || '場次', main:true};
+}
+
+function normalize(lg, ev){
+  if(lg.kind === 'race'){
+    const gp = ev.shortName || ev.name || 'Grand Prix';
+    const venue = ev.circuit?.fullName || ev.venue?.fullName || '';
+    const comps = ev.competitions || [];
+    if(!comps.length){
+      return [{id:`${lg.key}-${ev.id}`, lg:lg.key, date:new Date(ev.date), grid:gp, list:gp, title:ev.name||gp,
+               sub:'', venue, note:'', teamIds:[], main:true}];
+    }
+    return comps.map(c => {
+      const s = sessionLabel(`${c.type?.abbreviation||''} ${c.type?.text||''}`);
+      const st = c.status?.type || {};
+      return {
+        id:`${lg.key}-${ev.id}-${c.id}`, lg:lg.key, date:new Date(c.date || c.startDate || ev.date),
+        grid:`${gp} ${s.label}`, list:s.label, title:`${ev.name || gp}・${s.label}`,
+        sub:ev.name || gp, venue: venue || c.venue?.fullName || '',
+        note: st.state==='post' ? '已結束' : st.state==='in' ? '進行中' : '',
+        teamIds:[], main:s.main
+      };
+    });
+  }
+  const c = ev.competitions?.[0] || {};
+  const cs = c.competitors || [];
+  const h = teamInfo(cs.find(x=>x.homeAway==='home') || cs[0]);
+  const a = teamInfo(cs.find(x=>x.homeAway==='away') || cs[1]);
+  const st = c.status?.type || ev.status?.type || {};
+  const soccer = lg.kind === 'soccer';
+  const score = soccer ? `${h.score}–${a.score}` : `${a.score}–${h.score}`;
+  let note = '';
+  if(/POSTPONED/.test(st.name||'')) note = '延期';
+  else if(/CANCEL/.test(st.name||'')) note = '取消';
+  else if(st.state==='post') note = (h.score!=='' && a.score!=='') ? score : '已結束';
+  else if(st.state==='in') note = (h.score!=='' ? score + ' ' : '') + '進行中';
+  return [{
+    id:`${lg.key}-${ev.id}`, lg:lg.key, date:new Date(ev.date || c.date),
+    grid: soccer ? `${h.abbr}–${a.abbr}` : `${a.abbr} @ ${h.abbr}`,
+    list: soccer ? `${h.short} vs ${a.short}` : `${a.short} @ ${h.short}`,
+    title: soccer ? `${h.name} vs ${a.name}` : `${a.name} @ ${h.name}`,
+    sub:'', venue: c.venue?.fullName || '', note,
+    teamIds: [h.id, a.id].filter(Boolean), main:true,
+    teams: [h, a].filter(t => t.id).map(t => ({id:t.id, name:t.name, abbr:t.abbr}))
+  }];
+}
+
+async function fetchBoard(lg, dates, withLimit){
+  const q = dates ? `?dates=${dates}${withLimit ? '&limit=500' : ''}` : '';
+  let r;
+  try{ r = await fetch(`${API}/${lg.sport}/${lg.league}/scoreboard${q}`); }
+  catch(e){ throw new Error('network'); }
+  if(!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+
+async function pool(items, n, fn){
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({length:Math.min(n, items.length)}, async () => {
+    while(i < items.length){ const k = i++; try{ out[k] = {ok:true, v:await fn(items[k])}; }catch(e){ out[k] = {ok:false, e}; } }
+  }));
+  return out;
+}
+
+const noRange = new Set();
+async function fetchChunk(lg, s, e){
+  // Try the chunk as one range request; on any failure fall back to one request per day.
+  if(!noRange.has(lg.key)){
+    try{ return [await fetchBoard(lg, `${ymd(s)}-${ymd(e)}`, true)]; }
+    catch(err){ noRange.add(lg.key); }
+  }
+  const days = [];
+  for(let d = new Date(s); d <= e; d = addDays(d,1)) days.push(new Date(d));
+  const res = await pool(days, 4, d => fetchBoard(lg, ymd(d), false));
+  const ok = res.filter(r => r.ok).map(r => r.v);
+  if(!ok.length) throw res[0].e;
+  return ok;
+}
+
+async function getLeague(lg, fromD, toD){
+  const key = `${lg.key}|${ymd(fromD)}|${ymd(toD)}`;
+  if(cache.has(key)) return cache.get(key);
+  const chunks = [];
+  for(let s = new Date(fromD); s <= toD; s = addDays(s,14)){
+    const e = addDays(s,13);
+    chunks.push([s, e > toD ? new Date(toD) : e]);
+  }
+  const res = await Promise.allSettled(chunks.map(([s,e]) => fetchChunk(lg, s, e)));
+  let boards = res.filter(r => r.status==='fulfilled').flatMap(r => r.value);
+  if(!boards.length){
+    // last resort: today's default scoreboard with no date filter
+    try{ boards = [await fetchBoard(lg, '', false)]; }
+    catch(e){ throw res.find(r => r.status==='rejected').reason; }
+  }
+  const j = boards[0];
+  let out = [];
+  for(const b of boards) for(const ev of (b.events || [])){ try{ out.push(...normalize(lg, ev)); }catch(e){ console.warn('skip event', lg.key, ev?.id, e); } }
+  if(lg.kind === 'race' && !out.length){
+    const cal = j.leagues?.[0]?.calendar || [];
+    for(const it of cal){
+      if(!it || typeof it !== 'object' || !it.startDate) continue;
+      const d = new Date(it.startDate);
+      const label = it.label || 'Grand Prix';
+      out.push({id:`${lg.key}-cal-${it.startDate}`, lg:lg.key, date:d, grid:`${label} 週末`, list:'大獎賽週末',
+                title:label, sub:'場次時間尚未公布', venue:'', note:'', teamIds:[], main:true, allDay:true});
+    }
+  }
+  out = out.filter(e => !isNaN(e.date));
+  cache.set(key, out);
+  return out;
+}
+
+async function load(){
+  const token = ++loadToken;
+  const {start, end} = gridRange(cursor);
+  const from = addDays(start,-1), to = addDays(end,1);
+  const enabled = LEAGUES.filter(l => state.enabled[l.key]);
+  setStatus('載入賽程中…');
+  const res = await Promise.allSettled(enabled.map(l => getLeague(l, from, to)));
+  if(token !== loadToken) return;
+  const all = []; failed = []; let netFails = 0;
+  res.forEach((r,i) => {
+    if(r.status==='fulfilled') all.push(...r.value);
+    else {
+      const m = r.reason?.message || '';
+      failed.push(`${enabled[i].name}（${/^\d+$/.test(m) ? 'HTTP ' + m : '連線被拒'}）`);
+      if(!/^\d+$/.test(m)) netFails++;
+    }
+  });
+  blocked = failed.length > 0 && netFails === failed.length && failed.length === enabled.length;
+  const seen = new Set();
+  events = all.filter(e => seen.has(e.id) ? false : seen.add(e.id)).sort((a,b) => a.date - b.date);
+  render();
+}
+
+function visibleEvents(){
+  return events.filter(e => {
+    if(!state.enabled[e.lg]) return false;
+    if(e.lg === 'f1' && state.f1Main && !e.main) return false;
+    const picks = state.teams[e.lg];
+    if(picks && picks.length && !e.teamIds.some(id => picks.includes(id))) return false;
+    return true;
+  });
+}
+
+/* ---------- render ---------- */
+function setStatus(msg){
+  const el = $('#status');
+  el.textContent = '';
+  if(msg){ const s = document.createElement('span'); s.textContent = msg; el.append(s); }
+}
+
+function renderStatus(count){
+  const el = $('#status'); el.textContent = '';
+  const s = document.createElement('span');
+  s.textContent = `本月 ${count} 場`;
+  el.append(s);
+  if(failed.length){
+    const e = document.createElement('span'); e.className = 'err';
+    if(blocked && inFrame){
+      e.textContent = '目前是在預覽視窗裡開啟，預覽環境不允許連到 ESPN。請下載這個檔案，再直接用瀏覽器開啟。';
+    }else if(blocked){
+      e.textContent = '瀏覽器連不到 ESPN，可能被廣告攔截外掛、防火牆或公司網路擋住。可以先關掉攔截外掛，或直接在網址列開啟 https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard 測試。';
+    }else{
+      e.textContent = `${failed.join('、')} 載入失敗，請確認網路連線。`;
+    }
+    const b = document.createElement('button'); b.textContent = '重新載入';
+    b.onclick = () => { cache.clear(); noRange.clear(); load(); };
+    const d = document.createElement('button'); d.textContent = '診斷連線';
+    d.onclick = diagnose;
+    el.append(e, b, d);
+  }
+}
+
+function renderLeagues(){
+  const box = $('#leagueList'); box.textContent = '';
+  for(const lg of LEAGUES){
+    const on = !!state.enabled[lg.key];
+    const div = document.createElement('div');
+    div.className = 'lg' + (on ? '' : ' off');
+    div.style.setProperty('--c', lg.color);
+    div.innerHTML = `<label class="lg-main"><input type="checkbox" ${on?'checked':''}><span>${esc(lg.name)}</span></label>`;
+    div.querySelector('input').onchange = e => {
+      state.enabled[lg.key] = e.target.checked; saveState(); renderLeagues(); load();
+    };
+    if(on){
+      if(lg.kind === 'race'){
+        const l = document.createElement('label'); l.className = 'lg-sub';
+        l.innerHTML = `<input type="checkbox" ${state.f1Main?'checked':''}>只看排位、衝刺與正賽`;
+        l.querySelector('input').onchange = e => { state.f1Main = e.target.checked; saveState(); render(); };
+        div.append(l);
+      }else{
+        const b = document.createElement('button'); b.className = 'lg-sub';
+        const n = (state.teams[lg.key] || []).length;
+        const names = (state.teamNames[lg.key] || []);
+        b.textContent = n ? (n <= 2 && names.length ? names.join('、') : `已選 ${n} 隊`) : '全部球隊 · 選球隊';
+        b.onclick = () => openTeams(lg);
+        div.append(b);
+      }
+    }
+    box.append(div);
+  }
+}
+
+function currentView(){ return narrowMQ.matches ? 'list' : state.view; }
+
+function render(){
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  $('#monthTitle').innerHTML = `<span class="num mnum">${m+1}</span><span class="mlabel">月</span><span class="num myear">${y}</span>`;
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
+
+  const cal = $('#calendar');
+  const vis = visibleEvents();
+  const inMonth = vis.filter(e => e.date.getMonth()===m && e.date.getFullYear()===y);
+  renderStatus(inMonth.length);
+
+  if(!LEAGUES.some(l => state.enabled[l.key])){
+    cal.innerHTML = `<div class="empty">勾選至少一個聯賽，賽程就會出現在這裡。</div>`;
+    return;
+  }
+  const byDay = new Map();
+  for(const e of vis){ const k = dayKey(e.date); if(!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(e); }
+
+  if(currentView() === 'grid') renderGrid(cal, byDay);
+  else renderList(cal, byDay, inMonth.length);
+}
+
+function evButton(e, cls){
+  const lg = LG[e.lg];
+  const b = document.createElement('button');
+  b.style.setProperty('--c', lg.color);
+  const t = e.allDay ? '' : hm(e.date);
+  if(cls === 'ev'){
+    b.className = 'ev' + (!e.allDay && isLate(e.date) ? ' late' : '');
+    b.innerHTML = `${t ? `<span class="t num">${t}</span>` : ''}<span class="m">${esc(e.grid)}</span>`;
+    b.title = `${lg.name}｜${e.title}`;
+  }else{
+    b.className = 'row';
+    const late = !e.allDay && isLate(e.date) ? '<span class="pill">凌晨</span>' : '';
+    b.innerHTML = `<span class="t num">${t || '—'}</span><span class="tag">${esc(lg.name)}</span>`
+      + `<span class="m">${esc(e.list)}${late}<small>${esc(narrowMQ.matches ? lg.name + (e.sub ? '・' + e.sub : '') : (e.sub || e.venue))}</small></span>`
+      + `<span class="s num">${esc(e.note)}</span>`;
+  }
+  b.onclick = () => openEvent(e);
+  return b;
+}
+
+function renderGrid(cal, byDay){
+  const {start, cells} = gridRange(cursor);
+  const today = new Date();
+  const g = document.createElement('div'); g.className = 'grid';
+  ['一','二','三','四','五','六','日'].forEach(w => { const d = document.createElement('div'); d.className = 'wd'; d.textContent = w; g.append(d); });
+  for(let i=0; i<cells; i++){
+    const d = addDays(start, i);
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (d.getMonth()!==cursor.getMonth() ? ' out' : '') + (sameDay(d,today) ? ' today' : '');
+    cell.innerHTML = `<div class="d num">${d.getDate()}</div>`;
+    const list = byDay.get(dayKey(d)) || [];
+    const ul = document.createElement('ul');
+    const MAX = 4;
+    list.slice(0, list.length > MAX ? MAX-1 : MAX).forEach(e => { const li = document.createElement('li'); li.append(evButton(e,'ev')); ul.append(li); });
+    cell.append(ul);
+    if(list.length > MAX){
+      const more = document.createElement('button'); more.className = 'more';
+      more.textContent = `還有 ${list.length - (MAX-1)} 場`;
+      more.onclick = () => openDay(d, list);
+      cell.append(more);
+    }
+    g.append(cell);
+  }
+  cal.textContent = ''; cal.append(g);
+}
+
+function renderList(cal, byDay, count){
+  cal.textContent = '';
+  if(!count){
+    cal.innerHTML = `<div class="empty">這個月沒有符合條件的比賽。<br>試試勾選其他聯賽、清除球隊篩選，或切到下個月。</div>`;
+    return;
+  }
+  const wrap = document.createElement('div'); wrap.className = 'list';
+  const today = new Date();
+  const dim = new Date(cursor.getFullYear(), cursor.getMonth()+1, 0).getDate();
+  let todayEl = null;
+  for(let i=1; i<=dim; i++){
+    const d = new Date(cursor.getFullYear(), cursor.getMonth(), i);
+    const list = byDay.get(dayKey(d));
+    if(!list) continue;
+    const sec = document.createElement('section');
+    sec.className = 'day' + (sameDay(d,today) ? ' today' : '');
+    sec.innerHTML = `<h3><span class="num dnum">${d.getDate()}</span><span>${d.getMonth()+1} 月・週${WD[d.getDay()]}</span><span style="margin-left:auto">${list.length} 場</span></h3>`;
+    list.forEach(e => sec.append(evButton(e,'row')));
+    wrap.append(sec);
+    if(sameDay(d,today)) todayEl = sec;
+  }
+  cal.append(wrap);
+}
+
+/* ---------- dialogs ---------- */
+function bindBackdrop(dlg){ dlg.addEventListener('click', e => { if(e.target === dlg) dlg.close(); }); }
+['#evDlg','#dayDlg','#teamDlg'].forEach(s => bindBackdrop($(s)));
+
+function gcalLink(e){
+  const lg = LG[e.lg];
+  const endD = new Date(e.date.getTime() + (e.main && e.lg==='f1' && e.list==='正賽' ? 120 : e.lg==='f1' ? 60 : lg.dur) * 60000);
+  const p = new URLSearchParams({action:'TEMPLATE', text:`[${lg.name}] ${e.title}`, dates:`${utcStamp(e.date)}/${utcStamp(endD)}`, details:'來自我的賽程日曆', location:e.venue || ''});
+  return `https://calendar.google.com/calendar/render?${p}`;
+}
+
+function openEvent(e){
+  const lg = LG[e.lg];
+  const d = e.date;
+  const body = $('#evBody');
+  body.style.setProperty('--c', lg.color);
+  const time = e.allDay ? '' : `<span class="num">${hm(d)}</span>`;
+  body.innerHTML = `
+    <div class="lgname">${esc(lg.name)}</div>
+    <h3>${esc(e.title)}</h3>
+    <div class="when">${time}${d.getMonth()+1} 月 ${d.getDate()} 日（週${WD[d.getDay()]}）${!e.allDay && isLate(d) ? '<span class="pill">凌晨</span>' : ''}</div>
+    ${e.sub && e.sub !== e.title ? `<p class="muted">${esc(e.sub)}</p>` : ''}
+    ${e.venue ? `<p class="muted">地點：${esc(e.venue)}</p>` : ''}
+    ${e.note ? `<p class="muted">狀態：<span class="num" style="font-size:16px;color:var(--ink)">${esc(e.note)}</span></p>` : ''}
+    <div class="dlg-actions">
+      <button class="btn" data-close>關閉</button>
+      <a class="btn primary" target="_blank" rel="noopener" href="${esc(gcalLink(e))}">加入 Google 日曆</a>
+    </div>`;
+  body.querySelector('[data-close]').onclick = () => $('#evDlg').close();
+  if($('#dayDlg').open) $('#dayDlg').close();
+  $('#evDlg').showModal();
+}
+
+function openDay(d, list){
+  const body = $('#dayBody');
+  body.innerHTML = `<h3>${d.getMonth()+1} 月 ${d.getDate()} 日（週${WD[d.getDay()]}）・${list.length} 場</h3>`;
+  const box = document.createElement('div'); box.className = 'daylist';
+  list.forEach(e => box.append(evButton(e,'row')));
+  const act = document.createElement('div'); act.className = 'dlg-actions';
+  const c = document.createElement('button'); c.className = 'btn'; c.textContent = '關閉'; c.onclick = () => $('#dayDlg').close();
+  act.append(c);
+  body.append(box, act);
+  $('#dayDlg').showModal();
+}
+
+let pickLg = null, pickSel = new Set(), pickTeams = [];
+function renderTeamList(){
+  const q = $('#teamSearch').value.trim().toLowerCase();
+  const box = $('#teamList'); box.textContent = '';
+  pickTeams.filter(t => !q || t.name.toLowerCase().includes(q) || (t.abbr||'').toLowerCase().includes(q)).forEach(t => {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" ${pickSel.has(t.id)?'checked':''}><span>${esc(t.name)}</span><span class="ab num">${esc(t.abbr)}</span>`;
+    l.querySelector('input').onchange = e => { e.target.checked ? pickSel.add(t.id) : pickSel.delete(t.id); };
+    box.append(l);
+  });
+}
+function cleanTeams(list){
+  const seen = new Set();
+  return list.filter(t => t && t.id && !seen.has(t.id) && seen.add(t.id))
+    .map(t => ({id:String(t.id), name:t.displayName || t.name || t.abbreviation || '?', abbr:t.abbreviation || t.abbr || ''}))
+    .sort((a,b) => a.name.localeCompare(b.name));
+}
+async function fetchTeams(lg){
+  for(const q of ['', '?limit=300']){
+    try{
+      const r = await fetch(`${API}/${lg.sport}/${lg.league}/teams${q}`);
+      if(!r.ok) continue;
+      const j = await r.json();
+      const list = cleanTeams((j.sports?.[0]?.leagues?.[0]?.teams || []).map(x => x.team));
+      if(list.length) return list;
+    }catch(e){ console.warn('teams fetch failed', lg.key, q, e); }
+  }
+  return [];
+}
+function teamsFromEvents(lg){
+  return cleanTeams(events.filter(e => e.lg === lg.key).flatMap(e => e.teams || []));
+}
+async function openTeams(lg){
+  pickLg = lg; pickSel = new Set(state.teams[lg.key] || []); pickTeams = [];
+  $('#teamTitle').textContent = `${lg.name}：選擇球隊`;
+  $('#teamSearch').value = '';
+  $('#teamList').innerHTML = '<p class="muted" style="padding:12px">載入球隊名單中…</p>';
+  $('#teamDlg').showModal();
+  let teams = teamCache.get(lg.key);
+  if(!teams){
+    teams = await fetchTeams(lg);
+    if(teams.length) teamCache.set(lg.key, teams);
+  }
+  if(!teams.length) teams = teamsFromEvents(lg);
+  if(!teams.length){
+    $('#teamList').innerHTML = '<p class="muted" style="padding:12px">找不到球隊名單。這個月份可能還沒有這個聯賽的比賽，切到有比賽的月份再試一次。</p>';
+    return;
+  }
+  if(pickLg !== lg) return;
+  pickTeams = teams;
+  renderTeamList();
+}
+$('#teamSearch').oninput = renderTeamList;
+$('#teamClear').onclick = () => { pickSel.clear(); renderTeamList(); };
+$('#teamDone').onclick = () => $('#teamDlg').close();
+$('#teamDlg').addEventListener('close', () => {
+  if(!pickLg) return;
+  const ids = [...pickSel];
+  state.teams[pickLg.key] = ids;
+  state.teamNames[pickLg.key] = pickTeams.filter(t => pickSel.has(t.id)).map(t => t.abbr || t.name);
+  pickLg = null; saveState(); renderLeagues(); render();
+});
+
+/* ---------- export ---------- */
+function icsEscape(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n'); }
+function exportIcs(){
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  const list = visibleEvents().filter(e => e.date.getMonth()===m && e.date.getFullYear()===y);
+  if(!list.length){ setStatus('這個月沒有可匯出的比賽。'); return; }
+  const now = utcStamp(new Date());
+  const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//my-sports-calendar//ZH-TW','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:我的賽程'];
+  for(const e of list){
+    const lg = LG[e.lg];
+    const mins = e.lg==='f1' ? (e.list==='正賽' ? 120 : 60) : lg.dur;
+    lines.push('BEGIN:VEVENT', `UID:${e.id}@my-sports-calendar`, `DTSTAMP:${now}`);
+    if(e.allDay){
+      const d = e.date;
+      lines.push(`DTSTART;VALUE=DATE:${ymd(d)}`, `DTEND;VALUE=DATE:${ymd(addDays(d,3))}`);
+    }else{
+      lines.push(`DTSTART:${utcStamp(e.date)}`, `DTEND:${utcStamp(new Date(e.date.getTime()+mins*60000))}`);
+    }
+    lines.push(`SUMMARY:${icsEscape(`[${lg.name}] ${e.title}`)}`);
+    if(e.venue) lines.push(`LOCATION:${icsEscape(e.venue)}`);
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  const blob = new Blob([lines.join('\r\n')], {type:'text/calendar;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `賽程-${y}-${pad(m+1)}.ics`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  setStatus(`已匯出 ${list.length} 場比賽，用 Google 日曆或 Apple 日曆「匯入」這個檔案即可。`);
+}
+
+/* ---------- diagnose ---------- */
+async function diagnose(){
+  const lg = LEAGUES.find(l => failed.some(f => f.startsWith(l.name))) || LG.nba;
+  const t = new Date(), d0 = ymd(t), d6 = ymd(addDays(t,6));
+  const base = `${API}/${lg.sport}/${lg.league}`;
+  const tests = [
+    ['F1（對照組）', `${API}/racing/f1/scoreboard`],
+    [`${lg.name} 不帶日期`, `${base}/scoreboard`],
+    [`${lg.name} 單日`, `${base}/scoreboard?dates=${d0}`],
+    [`${lg.name} 7 天區間`, `${base}/scoreboard?dates=${d0}-${d6}`],
+    [`${lg.name} 7 天區間＋limit`, `${base}/scoreboard?dates=${d0}-${d6}&limit=500`],
+    [`${lg.name} 球隊名單`, `${base}/teams`],
+  ];
+  const body = $('#dayBody');
+  body.innerHTML = '<h3>診斷連線</h3><p class="muted">測試中…</p>';
+  $('#dayDlg').showModal();
+  const lines = [`開啟方式：${location.protocol}${inFrame ? '（在框架內）' : ''}`, `瀏覽器：${navigator.userAgent}`];
+  for(const [name, url] of tests){
+    try{
+      const r = await fetch(url);
+      let extra = '';
+      if(r.ok){ try{ const j = await r.json(); extra = `，${(j.events || j.sports?.[0]?.leagues?.[0]?.teams || []).length} 筆`; }catch(e){ extra = '，不是 JSON'; } }
+      lines.push(`${r.ok ? '✓' : '✗'} ${name}：HTTP ${r.status}${extra}`);
+    }catch(e){
+      lines.push(`✗ ${name}：連線被拒（${e.name}: ${e.message}）`);
+    }
+  }
+  const text = lines.join('\n');
+  body.innerHTML = '<h3>診斷連線</h3><p class="muted">把下面的結果複製給 Claude。</p>';
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font-size:12.5px;background:var(--soft);padding:12px;border-radius:8px;margin:0;overflow:auto';
+  pre.textContent = text;
+  const act = document.createElement('div'); act.className = 'dlg-actions';
+  const c = document.createElement('button'); c.className = 'btn'; c.textContent = '關閉'; c.onclick = () => $('#dayDlg').close();
+  const cp = document.createElement('button'); cp.className = 'btn primary'; cp.textContent = '複製結果';
+  cp.onclick = async () => { try{ await navigator.clipboard.writeText(text); cp.textContent = '已複製'; }catch(e){ cp.textContent = '請手動選取複製'; } };
+  act.append(c, cp);
+  body.append(pre, act);
+}
+
+/* ---------- wiring ---------- */
+$('#prevBtn').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()-1, 1); render(); load(); };
+$('#nextBtn').onclick = () => { cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1); render(); load(); };
+$('#todayBtn').onclick = () => { const t = new Date(); cursor = new Date(t.getFullYear(), t.getMonth(), 1); render(); load(); };
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => { state.view = b.dataset.view; saveState(); render(); });
+$('#exportBtn').onclick = exportIcs;
+narrowMQ.addEventListener('change', render);
+
+renderLeagues();
+render();
+load();
+</script>
+</body>
+</html>
