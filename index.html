@@ -87,6 +87,9 @@ main{padding:22px 28px 40px;min-width:0}
 .ev{display:flex;gap:5px;align-items:baseline;width:100%;border:0;text-align:left;padding:2px 6px;border-radius:4px;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;
   background:color-mix(in srgb, var(--c) 18%, var(--surface));color:var(--ink)}
 .ev:hover{background:color-mix(in srgb, var(--c) 32%, var(--surface))}
+.ev.hl{background:var(--c);color:#fff;font-weight:600;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.ev.hl:hover{background:color-mix(in srgb, var(--c) 85%, #000)}
+.ev.hl .m::before{content:"🏁";margin-right:3px;font-weight:400}
 .ev .t{font-size:13.5px;font-weight:600;flex:none}
 .ev .m{overflow:hidden;text-overflow:ellipsis}
 .ev.late .t::before{content:"☾";font-family:system-ui,sans-serif;font-size:10px;margin-right:2px;opacity:.7}
@@ -102,6 +105,12 @@ main{padding:22px 28px 40px;min-width:0}
 .row{display:grid;grid-template-columns:58px 64px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;border:0;border-left:4px solid var(--c);background:none;text-align:left;padding:9px 14px 9px 10px;border-bottom:1px solid var(--line)}
 .row:last-child{border-bottom:0}
 .row:hover{background:var(--soft)}
+.row.hl{border-left-width:7px;background:color-mix(in srgb, var(--c) 12%, var(--surface))}
+.row.hl:hover{background:color-mix(in srgb, var(--c) 20%, var(--surface))}
+.row.hl .tag{color:#fff;background:var(--c);border-radius:4px;padding:1px 6px;font-weight:600;justify-self:start}
+.row.hl .m{font-weight:700}
+.row.hl .m::before{content:"🏁 ";font-weight:400}
+.hl-badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--c);color:#fff;margin-left:6px;vertical-align:2px;font-weight:600}
 .row .t{font-size:22px;font-weight:600;line-height:1}
 .row .tag{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .m{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -141,7 +150,7 @@ a.btn{text-decoration:none;display:inline-block}
 }
 @media (max-width:720px){
   .seg{display:none}
-  .row{grid-template-columns:50px minmax(0,1fr) auto;gap:8px}
+  .row{grid-template-columns:58px minmax(0,1fr) auto;gap:10px}
   .row .tag{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
@@ -226,7 +235,7 @@ const utcStamp = d => d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
 function defaultState(){
   return {
     enabled:{nba:true, mlb:true, f1:true, epl:true, laliga:true},
-    teams:{}, teamNames:{}, f1Main:true, view:'grid'
+    teams:{}, teamNames:{}, f1Main:true, f1Highlight:true, view:'grid'
   };
 }
 function loadState(){
@@ -467,7 +476,10 @@ function renderLeagues(){
         const l = document.createElement('label'); l.className = 'lg-sub';
         l.innerHTML = `<input type="checkbox" ${state.f1Main?'checked':''}>只看排位、衝刺與正賽`;
         l.querySelector('input').onchange = e => { state.f1Main = e.target.checked; saveState(); render(); };
-        div.append(l);
+        const h = document.createElement('label'); h.className = 'lg-sub';
+        h.innerHTML = `<input type="checkbox" ${state.f1Highlight?'checked':''}>在日曆上醒目顯示`;
+        h.querySelector('input').onchange = e => { state.f1Highlight = e.target.checked; saveState(); render(); };
+        div.append(l, h);
       }else{
         const b = document.createElement('button'); b.className = 'lg-sub';
         const n = (state.teams[lg.key] || []).length;
@@ -504,17 +516,18 @@ function render(){
   else renderList(cal, byDay, inMonth.length);
 }
 
+const isHl = e => e.lg === 'f1' && state.f1Highlight;
 function evButton(e, cls){
   const lg = LG[e.lg];
   const b = document.createElement('button');
   b.style.setProperty('--c', lg.color);
   const t = e.allDay ? '' : hm(e.date);
   if(cls === 'ev'){
-    b.className = 'ev' + (!e.allDay && isLate(e.date) ? ' late' : '');
+    b.className = 'ev' + (!e.allDay && isLate(e.date) ? ' late' : '') + (isHl(e) ? ' hl' : '');
     b.innerHTML = `${t ? `<span class="t num">${t}</span>` : ''}<span class="m">${esc(e.grid)}</span>`;
     b.title = `${lg.name}｜${e.title}`;
   }else{
-    b.className = 'row';
+    b.className = 'row' + (isHl(e) ? ' hl' : '');
     const late = !e.allDay && isLate(e.date) ? '<span class="pill">凌晨</span>' : '';
     b.innerHTML = `<span class="t num">${t || '—'}</span><span class="tag">${esc(lg.name)}</span>`
       + `<span class="m">${esc(e.list)}${late}<small>${esc(narrowMQ.matches ? lg.name + (e.sub ? '・' + e.sub : '') : (e.sub || e.venue))}</small></span>`
@@ -537,7 +550,11 @@ function renderGrid(cal, byDay){
     const list = byDay.get(dayKey(d)) || [];
     const ul = document.createElement('ul');
     const MAX = 4;
-    list.slice(0, list.length > MAX ? MAX-1 : MAX).forEach(e => { const li = document.createElement('li'); li.append(evButton(e,'ev')); ul.append(li); });
+    const room = list.length > MAX ? MAX-1 : MAX;
+    const hl = list.filter(isHl).slice(0, room);
+    const rest = list.filter(e => !isHl(e)).slice(0, room - hl.length);
+    const shown = [...hl, ...rest].sort((a,b) => a.date - b.date);
+    shown.forEach(e => { const li = document.createElement('li'); li.append(evButton(e,'ev')); ul.append(li); });
     cell.append(ul);
     if(list.length > MAX){
       const more = document.createElement('button'); more.className = 'more';
