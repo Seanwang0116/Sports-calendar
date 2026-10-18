@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -34,20 +35,42 @@ LEAGUES = {
 }
 
 CHUNK_DAYS = 14  # ESPN rejects long date ranges; stay well under its limit
+PAUSE = 0.5      # seconds between requests; ESPN's CDN blocks bursts with 403 for several minutes
+
+# The web page reads calendar/data/*.json instead of calling ESPN, because the
+# iOS home-screen app blocks cross-origin requests. This window is what the
+# page can browse without ESPN.
+DATA_DAYS_BACK = 70   # enough for the whole previous month's grid
+DATA_DAYS_AHEAD = 150
 
 
 # ---------------------------------------------------------------- fetching
 
+_lock = threading.Lock()
+_next_at = 0.0
+
+
+def throttle():
+    global _next_at
+    with _lock:
+        now = time.monotonic()
+        wait = _next_at - now
+        _next_at = max(now, _next_at) + PAUSE
+    if wait > 0:
+        time.sleep(wait)
+
+
 def get_json(url, tries=3):
     last = None
     for i in range(tries):
+        throttle()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "sports-calendar/1.0"})
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             last = e
-            if 400 <= e.code < 500 and e.code != 429:
+            if 400 <= e.code < 500 and e.code not in (403, 429):
                 raise  # a bad request will not get better by retrying
         except Exception as e:  # network hiccup, timeout, bad JSON
             last = e
@@ -85,14 +108,110 @@ def fetch_chunk(lg, start, end):
     return boards
 
 
+def months(start, end):
+    y, m = start.year, start.month
+    while (y, m) <= (end.year, end.month):
+        yield y, m
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+
 def fetch_league(lg, start, end):
+    """One request per month (dates=YYYYMM). ESPN currently refuses day ranges, so falling
+    back to them means one request per day, which is slow and gets us rate-limited."""
     boards = []
-    s = start
-    while s <= end:
-        e = min(s + dt.timedelta(days=CHUNK_DAYS - 1), end)
-        boards.extend(fetch_chunk(lg, s, e))
-        s = e + dt.timedelta(days=1)
+    for y, m in months(start, end):
+        try:
+            boards.append(get_json(board_url(lg, f"{y}{m:02d}") + "&limit=1000"))
+            continue
+        except Exception:
+            pass
+        first = max(start, dt.date(y, m, 1))
+        last = min(end, dt.date(y + m // 12, m % 12 + 1, 1) - dt.timedelta(days=1))
+        s = first
+        while s <= last:
+            e = min(s + dt.timedelta(days=CHUNK_DAYS - 1), last)
+            boards.extend(fetch_chunk(lg, s, e))
+            s = e + dt.timedelta(days=1)
     return boards
+
+
+def fetch_teams(lg):
+    for q in ("", "?limit=300"):
+        try:
+            j = get_json(f"{API}/{lg['sport']}/{lg['league']}/teams{q}")
+        except Exception:
+            continue
+        rows = (((j.get("sports") or [{}])[0].get("leagues") or [{}])[0].get("teams")) or []
+        teams = [(r or {}).get("team") or {} for r in rows]
+        teams = [dict(id=str(t["id"]), name=t.get("displayName") or t.get("name") or "",
+                      abbr=t.get("abbreviation") or "") for t in teams if t.get("id")]
+        if teams:
+            return teams
+    return []
+
+
+# ---------------------------------------------------------------- page data
+
+def pick(d, keys):
+    return {k: d[k] for k in keys if isinstance(d, dict) and d.get(k) is not None}
+
+
+def slim_status(s):
+    return {"type": pick((s or {}).get("type") or {}, ("name", "state"))}
+
+
+def slim_event(ev, kind):
+    """Keep only the ESPN fields that normalize() in index.html reads."""
+    out = pick(ev, ("id", "date", "name", "shortName"))
+    if ev.get("status"):
+        out["status"] = slim_status(ev["status"])
+    for k in ("circuit", "venue"):
+        if ev.get(k):
+            out[k] = pick(ev[k], ("fullName",))
+    comps = []
+    for c in ev.get("competitions") or []:
+        sc = pick(c, ("id", "date", "startDate"))
+        if c.get("type"):
+            sc["type"] = pick(c["type"], ("abbreviation", "text"))
+        if c.get("status"):
+            sc["status"] = slim_status(c["status"])
+        if c.get("venue"):
+            sc["venue"] = pick(c["venue"], ("fullName",))
+        if kind != "race":  # F1 competitors are drivers; the page does not use them
+            cs = []
+            for x in c.get("competitors") or []:
+                sx = pick(x, ("homeAway",))
+                score = x.get("score")
+                if isinstance(score, dict):
+                    score = score.get("displayValue", score.get("value"))
+                if score is not None:
+                    sx["score"] = str(score)
+                if x.get("team"):
+                    sx["team"] = pick(x["team"], ("id", "displayName", "name", "shortDisplayName", "abbreviation"))
+                cs.append(sx)
+            sc["competitors"] = cs
+        comps.append(sc)
+    out["competitions"] = comps
+    return out
+
+
+def write_data(path, lg, boards, start, end, now):
+    seen, events, cal = set(), [], {}
+    for b in boards:
+        for ev in b.get("events") or []:
+            if ev.get("id") in seen:
+                continue
+            seen.add(ev.get("id"))
+            events.append(slim_event(ev, lg["kind"]))
+        if lg["kind"] == "race":
+            for it in ((b.get("leagues") or [{}])[0].get("calendar") or []):
+                if isinstance(it, dict) and it.get("startDate"):
+                    cal[it["startDate"]] = pick(it, ("label", "startDate"))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(dict(updated=now.isoformat(), range=[ymd(start), ymd(end)],
+                       events=events, calendar=list(cal.values())),
+                  f, ensure_ascii=False, separators=(",", ":"))
+    return len(events)
 
 
 # ---------------------------------------------------------------- normalizing
@@ -278,16 +397,43 @@ def main():
     start = today - dt.timedelta(days=int(cfg.get("days_back", 7)))
     end = today + dt.timedelta(days=int(cfg.get("days_ahead", 90)))
 
+    data_start = min(start, today - dt.timedelta(days=DATA_DAYS_BACK))
+    data_end = max(end, today + dt.timedelta(days=DATA_DAYS_AHEAD))
+    data_dir = os.path.join(args.out, "data")
+    os.makedirs(data_dir, exist_ok=True)
+
+    # Fetch every league once over the wider page-data window; the .ics files use a slice of it.
+    # Subscribed leagues go first, so if ESPN starts refusing us only the page-only extras suffer.
+    wanted = cfg.get("leagues") or {}
+    fetched = {}
+    for key in sorted(LEAGUES, key=lambda k: k not in wanted):
+        try:
+            fetched[key] = fetch_league(LEAGUES[key], data_start, data_end), None
+        except Exception as e:
+            fetched[key] = None, e
+    teams_by_league = {k: fetch_teams(lg) for k, lg in LEAGUES.items() if lg["kind"] != "race"}
+
+    for key, lg in LEAGUES.items():
+        boards, err = fetched[key]
+        if boards is not None:
+            n = write_data(os.path.join(data_dir, f"{key}.json"), lg, boards, data_start, data_end, now)
+            print(f"  網頁資料 {lg['name']}：{n} 場")
+        elif key not in wanted:
+            # Not in the subscription: the page falls back to ESPN for it, so just warn.
+            print(f"  網頁資料 {lg['name']} 抓取失敗：{err!r}", file=sys.stderr)
+    with open(os.path.join(data_dir, "teams.json"), "w", encoding="utf-8") as f:
+        json.dump({k: v for k, v in teams_by_league.items() if v}, f, ensure_ascii=False, separators=(",", ":"))
+
     all_events, status, failed = [], {}, []
-    for key, conf in (cfg.get("leagues") or {}).items():
+    lo, hi = start - dt.timedelta(days=1), end + dt.timedelta(days=1)
+    for key, conf in wanted.items():
         lg = LEAGUES.get(key)
         if not lg:
             print(f"略過未知聯賽：{key}", file=sys.stderr)
             continue
         conf = conf or {}
-        try:
-            boards = fetch_league(lg, start, end)
-        except Exception as e:
+        boards, e = fetched[key]
+        if boards is None:
             print(f"✗ {lg['name']} 抓取失敗：{e!r}", file=sys.stderr)
             failed.append(lg["name"])
             status[key] = dict(name=lg["name"], ok=False, error=str(e))
@@ -303,6 +449,7 @@ def main():
                             events.append(item)
                 except Exception as e:
                     print(f"  略過一場 {key} 比賽：{e!r}", file=sys.stderr)
+        events = [e for e in events if lo <= e["start"].date() <= hi]
         if lg["kind"] == "race" and not events:
             events = calendar_fallback(key, lg, boards, start, end)
 

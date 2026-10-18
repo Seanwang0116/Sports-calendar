@@ -180,7 +180,7 @@ a.btn{text-decoration:none;display:inline-block;color:var(--ink)}
     <h1>我的賽程日曆</h1>
     <p class="hint">勾選想看的聯賽，比賽時間會自動換成你電腦的當地時間。☾ 表示凌晨開打。</p>
     <div class="leagues" id="leagueList"></div>
-    <p class="source">賽程資料來自 ESPN 公開 API，每次切換月份時即時抓取。</p>
+    <p class="source">賽程資料來自 ESPN 公開 API，由 GitHub 每 2 小時整理一次；能連到 ESPN 時，近幾天的比分會即時更新。</p>
   </aside>
   <main>
     <div class="bar">
@@ -239,8 +239,12 @@ const LEAGUES = [
 const LG = Object.fromEntries(LEAGUES.map(l=>[l.key,l]));
 const API = 'https://site.api.espn.com/apis/site/v2/sports';
 const STORE = 'my-sports-calendar-v1';
-const APP_VERSION = '1.0';
-const APP_DATE = '2026-10-13';
+const APP_VERSION = '1.1';
+const APP_DATE = '2026-10-18';
+// Same-origin copy of the ESPN data, written by build_ics.py. The iOS home-screen app
+// blocks cross-origin requests, so the page reads this first and uses ESPN only as a fallback.
+const HOSTED = /^https?:$/.test(location.protocol);
+const DATA = new URL('calendar/data/', location.href);
 const WD = ['日','一','二','三','四','五','六'];
 
 const $ = s => document.querySelector(s);
@@ -279,6 +283,9 @@ let scrollToToday = true;          // jump to today once, on open or when tappin
 const collapsedDays = new Set();   // days the user collapsed by hand
 const expandedDays = new Set();    // past days the user expanded by hand
 const teamCache = new Map();
+const localData = new Map();       // league key -> Promise of its calendar/data JSON (or null)
+let localTeamsData = null;
+const liveKeys = new Set();        // leagues shown from local data, refreshed from ESPN after render
 const narrowMQ = matchMedia('(max-width:720px)');
 
 /* ---------- data ---------- */
@@ -359,7 +366,7 @@ function normalize(lg, ev){
 }
 
 async function fetchBoard(lg, dates, withLimit){
-  const q = dates ? `?dates=${dates}${withLimit ? '&limit=500' : ''}` : '';
+  const q = dates ? `?dates=${dates}${withLimit ? '&limit=1000' : ''}` : '';
   let r;
   try{ r = await fetch(`${API}/${lg.sport}/${lg.league}/scoreboard${q}`); }
   catch(e){ throw new Error('network'); }
@@ -390,9 +397,37 @@ async function fetchChunk(lg, s, e){
   return ok;
 }
 
-async function getLeague(lg, fromD, toD){
-  const key = `${lg.key}|${ymd(fromD)}|${ymd(toD)}`;
-  if(cache.has(key)) return cache.get(key);
+function getLocal(lg){
+  if(!HOSTED) return Promise.resolve(null);
+  if(!localData.has(lg.key)){
+    localData.set(lg.key, fetch(new URL(`${lg.key}.json`, DATA), {cache:'no-cache'})
+      .then(r => r.ok ? r.json() : null).catch(() => null));
+  }
+  return localData.get(lg.key);
+}
+
+async function localBoards(lg, fromD, toD){
+  const d = await getLocal(lg);
+  if(!d || !d.range || d.range[0] > ymd(fromD) || ymd(toD) > d.range[1]) return null;
+  const lo = fromD.getTime(), hi = addDays(toD,1).getTime();
+  const inRange = s => { const t = Date.parse(s); return t >= lo && t < hi; };
+  const evs = (d.events || []).filter(ev => inRange(ev.date) || (ev.competitions || []).some(c => inRange(c.date || c.startDate)));
+  return [{events:evs, leagues:[{calendar:d.calendar || []}]}];
+}
+
+function monthsBetween(fromD, toD){
+  const out = [];
+  for(let d = new Date(fromD.getFullYear(), fromD.getMonth(), 1); d <= toD; d = new Date(d.getFullYear(), d.getMonth()+1, 1)) out.push(d);
+  return out;
+}
+
+// One request per month (dates=YYYYMM); ESPN currently rejects day ranges.
+async function espnMonths(lg, fromD, toD){
+  return Promise.all(monthsBetween(fromD, toD).map(m => fetchBoard(lg, `${m.getFullYear()}${pad(m.getMonth()+1)}`, true)));
+}
+
+async function espnBoards(lg, fromD, toD){
+  try{ return await espnMonths(lg, fromD, toD); }catch(e){}
   const chunks = [];
   for(let s = new Date(fromD); s <= toD; s = addDays(s,14)){
     const e = addDays(s,13);
@@ -405,6 +440,15 @@ async function getLeague(lg, fromD, toD){
     try{ boards = [await fetchBoard(lg, '', false)]; }
     catch(e){ throw res.find(r => r.status==='rejected').reason; }
   }
+  return boards;
+}
+
+async function getLeague(lg, fromD, toD){
+  const key = `${lg.key}|${ymd(fromD)}|${ymd(toD)}`;
+  if(cache.has(key)) return cache.get(key);
+  let boards = await localBoards(lg, fromD, toD);
+  if(boards) liveKeys.add(lg.key);
+  else boards = await espnBoards(lg, fromD, toD);
   const j = boards[0];
   let out = [];
   for(const b of boards) for(const ev of (b.events || [])){ try{ out.push(...normalize(lg, ev)); }catch(e){ console.warn('skip event', lg.key, ev?.id, e); } }
@@ -444,6 +488,25 @@ async function load(){
   const seen = new Set();
   events = all.filter(e => seen.has(e.id) ? false : seen.add(e.id)).sort((a,b) => a.date - b.date);
   render();
+  refreshLive(token, enabled.filter(l => liveKeys.has(l.key)), from, to);
+}
+
+// Local data can be up to 2 hours old. Where ESPN is reachable (e.g. a Safari tab), pull the
+// last few days again for live scores. In the home-screen app this fails quietly.
+async function refreshLive(token, leagues, from, to){
+  const now = new Date(), t0 = addDays(now,-2), t1 = addDays(now,1);
+  if(!leagues.length || t1 < from || t0 > to) return;
+  const res = await Promise.allSettled(leagues.map(async lg => {
+    const boards = await espnMonths(lg, t0, t1);
+    return boards.flatMap(b => b.events || []).flatMap(ev => { try{ return normalize(lg, ev); }catch(e){ return []; } });
+  }));
+  if(token !== loadToken) return;
+  const fresh = res.filter(r => r.status==='fulfilled').flatMap(r => r.value).filter(e => !isNaN(e.date) && e.date >= from && e.date <= addDays(to,1));
+  if(!fresh.length) return;
+  const byId = new Map(events.map(e => [e.id, e]));
+  for(const e of fresh) byId.set(e.id, e);
+  events = [...byId.values()].sort((a,b) => a.date - b.date);
+  render();
 }
 
 function visibleEvents(){
@@ -478,7 +541,7 @@ function renderStatus(count){
       e.textContent = `${failed.join('、')} 載入失敗，請確認網路連線。`;
     }
     const b = document.createElement('button'); b.textContent = '重新載入';
-    b.onclick = () => { cache.clear(); noRange.clear(); load(); };
+    b.onclick = () => { cache.clear(); noRange.clear(); localData.clear(); liveKeys.clear(); load(); };
     const d = document.createElement('button'); d.textContent = '診斷連線';
     d.onclick = diagnose;
     el.append(e, b, d);
@@ -694,6 +757,11 @@ function cleanTeams(list){
     .sort((a,b) => a.name.localeCompare(b.name));
 }
 async function fetchTeams(lg){
+  if(HOSTED){
+    localTeamsData ??= fetch(new URL('teams.json', DATA), {cache:'no-cache'}).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+    const list = cleanTeams((await localTeamsData)[lg.key] || []);
+    if(list.length) return list;
+  }
   for(const q of ['', '?limit=300']){
     try{
       const r = await fetch(`${API}/${lg.sport}/${lg.league}/teams${q}`);

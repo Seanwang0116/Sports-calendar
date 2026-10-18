@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "17 */6 * * *"   # 每 6 小時（UTC）跑一次
+    - cron: "17 */2 * * *"   # 每 2 小時（UTC）跑一次
   workflow_dispatch:          # 可在 Actions 頁面手動執行
 
 permissions:
